@@ -320,7 +320,7 @@ export default {
   'the login is read in the shape the desktop client writes and never modified'(t) {
     const { profile } = sandbox(t);
     const file = path.join(profile, 'agent', 'config', 'auth.json');
-    const auth = { access_token: 'eyJhbGciOiJIUzI1NiJ9.x.y', office_identity: 'personal' };
+    const auth = { access_token: 'not-a-real-token', office_identity: 'personal' };
     fs.writeFileSync(file, JSON.stringify(auth));
     const before = fs.readFileSync(file);
     const state = loginState(profile);

@@ -1,0 +1,46 @@
+{
+  "name": "magpie-agent-raccoon-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Make 商汤小浣熊 (SenseTime Raccoon / RaccoonWork) use every model and routing group configured in Magpie. The model menu returns the Magpie catalog; Raccoon's own login is untouched.",
+  "license": "MIT",
+  "magpie": {
+    "agent": "./agent.js",
+    "name": "Raccoon · Magpie Bridge",
+    "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABq0lEQVR4nO2bTU7DMBSEx6McgzWwQIgFJ+JgnIhFhbIgrLkHiEUkK0od/8f29Nu1ssczz89J2qrADW1MzKT7x5dfNMj31yU4j+k9dGoxOGL4EM8mh0jP3cDRwx9lYeiEXrmWiRCHCrvvysajAaOxzUiIQ4hDpfbfy0qIQ4hDiEOIQ4hDiMNSwvPnR9N6Kybnc8A1k0/Pr01p2t8RmNQC+O5MjOGS2kkFmBPa0cdsaf2oAswRu5Hz3MbouooR1QGzY2HXYqV2NNaPXQDmMtMSIT5N7EXQrn6pcx2qGxI8qgNa7oZYPzxj0dyk+DA5HoT+29D3YpWzrY/WLXoEbHxNnDXOxYSCrDsZY3Sdk6JR/bNA6pW5ll72I7BlNZnLbG694h3QA0U7oCcIcQhxCHGm2gsub3eHYx7efzBkBywe4UPGdVWAJTBUrSIQ4hDiEOKw1kKhV/ZadwKiIr6hat4GJ1SmZjgfCHEIcZjyZ4NesbMS4hDi0H6hcAy2GXk0YCT2shHicO/NEbvgWiaGTugRVxbjI9DrbwY+m8hcQq3h69nEiLfaET1u1A2czB9T0stQ5jPAYAAAAABJRU5ErkJggg=="
+  },
+  "main": "./plugin.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "win32",
+    "darwin"
+  ],
+  "scripts": {
+    "test": "node test/run.mjs",
+    "status": "node bin/raccoon-magpie.js status",
+    "sync": "node bin/raccoon-magpie.js sync",
+    "restore": "node bin/raccoon-magpie.js restore",
+    "uninstall": "node bin/raccoon-magpie.js uninstall",
+    "doctor": "node bin/raccoon-magpie.js doctor"
+  },
+  "files": [
+    "agent.js",
+    "plugin.js",
+    "bin",
+    "lib",
+    "icon.png",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "magpie",
+    "magpie-agent",
+    "raccoon",
+    "xiaohuanxiong",
+    "sensetime",
+    "byok",
+    "routing-group"
+  ]
+}

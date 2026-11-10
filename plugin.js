@@ -9,7 +9,14 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { configDir } from './lib/util.js';
-import { connectionStamp, connectionState, liveCatalog, reconcile, record } from './lib/supervise.js';
+import {
+  connectionStamp,
+  connectionState,
+  liveCatalog,
+  reconcile,
+  reconcileCheckin,
+  record,
+} from './lib/supervise.js';
 
 const LOG = path.join(configDir(), 'plugin.log');
 
@@ -56,6 +63,16 @@ async function run() {
   const result = await reconcile({ catalog: ensureCatalog() });
   if (result.action !== 'unchanged' && result.action !== 'idle') {
     await note(`reconcile ${result.action}${result.reason ? ` (${result.reason})` : ''}`);
+  }
+  // The daily grant is the account's own business: it is claimed whether or not
+  // Magpie's switch is on, so a user who only wants credits is not left out.
+  try {
+    const checkin = await reconcileCheckin();
+    if (checkin.action !== 'idle') {
+      await note(`checkin ${checkin.action}${checkin.outcome?.message ? ` (${checkin.outcome.message})` : ''}`);
+    }
+  } catch (error) {
+    await note(`checkin: ${error?.message || error}`);
   }
   return result;
 }

@@ -14,6 +14,7 @@ const SUITES = [
   'catalog.test.mjs',
   'supervise.test.mjs',
   'app-reader.test.mjs',
+  'checkin.test.mjs',
 ];
 
 let passed = 0;

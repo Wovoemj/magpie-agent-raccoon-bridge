@@ -56,6 +56,35 @@ What is written, and what is not:
 - **Byte-exact undo**: disconnect restores the original file, unless you have since
   changed models — then your newer choice is kept and only the Magpie entry goes.
 - **No-op friendly**: an unchanged catalog does not rewrite the file at all.
+- **Daily check-in**: claims Raccoon's daily credits at 09:00 Beijing time, and
+  reports what actually landed rather than what the request returned.
+
+---
+
+## Daily check-in
+
+Raccoon has no dedicated check-in endpoint: loading
+`/api/web/office/v3/setting_info` with the account token is what triggers the
+daily grant. A check-in therefore snapshots today's grant bills, touches that
+endpoint, then diffs the bills again.
+
+That diff is the point. Reporting the HTTP status would mean claiming `+300`
+on every run and calling a silent failure a success; the diff reports `claimed`
+only when new grant bills appeared, and `already checked in today` otherwise.
+
+- The schedule is evaluated in **Beijing time**, because that is where the vendor
+  cuts the day. A laptop in another timezone still checks in once per Beijing day.
+- A failed attempt leaves the day **pending**, so the next pass retries instead of
+  silently losing the day's credits. A refused sign-in waits for you instead.
+- It runs whether or not the model switch is on: the credits are the account's,
+  not the bridge's.
+
+```bash
+node bin/raccoon-magpie.js checkin     # claim now, ignoring the schedule
+```
+
+State lives in `~/.config/magpie-raccoon-bridge/checkin.json`. The token is read
+from Raccoon's own `auth.json` and never refreshed or written by this bridge.
 
 ---
 

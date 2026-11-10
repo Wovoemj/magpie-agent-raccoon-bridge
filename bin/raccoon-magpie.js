@@ -11,8 +11,15 @@ import path from 'node:path';
 import { disable, enable, status as autostartStatus } from '../lib/autostart.js';
 import { discover, saveConnection } from '../lib/magpie.js';
 import { apply, loginState, readJournal, readState, restore, takenOver } from '../lib/sync.js';
-import { connectionStamp, connectionState, liveCatalog, reconcile } from '../lib/supervise.js';
-import { configDir, configFile, raccoonProfile, sleep } from '../lib/util.js';
+import {
+  connectionStamp,
+  connectionState,
+  liveCatalog,
+  reconcile,
+  reconcileCheckin,
+} from '../lib/supervise.js';
+import { loadCheckin } from '../lib/checkin.js';
+import { configDir, configFile, raccoonProfile, readJSON, sleep } from '../lib/util.js';
 
 const LOG = path.join(configDir(), 'plugin.log');
 
@@ -64,6 +71,7 @@ async function cmdStatus() {
       takenOver: takenOver(),
       journal: journal ? { file: journal.file, magpiePresets: journal.ownedIds?.length ?? 0 } : null,
       autostart: autostartStatus(),
+      checkin: loadCheckin(readJSON, path.join(configDir(), 'checkin.json')),
       state,
     },
   });
@@ -79,6 +87,24 @@ async function cmdRestore() {
   const result = await restore();
   out(result);
   return 0;
+}
+
+async function cmdCheckin() {
+  // A person at a terminal means "check in now", so the schedule and the
+  // already-done-today guard are both bypassed. The diff still decides the
+  // outcome, so a repeat run honestly reports "already checked in".
+  const file = path.join(configDir(), 'checkin.json');
+  const before = loadCheckin(readJSON, file);
+  const result = await reconcileCheckin({ checkinFile: file, now: Date.now(), force: true });
+  out({
+    outcome: result.outcome?.outcome ?? result.action,
+    message: result.outcome?.message ?? null,
+    credits: result.outcome?.credits ?? null,
+    previous: before.lastResult,
+    state: result.state,
+  });
+  const bad = ['failed', 'signed-out'].includes(result.outcome?.outcome);
+  return bad ? 1 : 0;
 }
 
 async function cmdDoctor() {
@@ -138,6 +164,16 @@ async function cmdWatch() {
         if (result.action !== 'unchanged' && result.action !== 'idle') {
           await note(`reconcile ${result.action}${result.reason ? ` (${result.reason})` : ''}`);
         }
+        // The schedule is independent of the switch: Magpie may be off while the
+        // account still wants its daily credits.
+        try {
+          const done = await reconcileCheckin();
+          if (done.action !== 'idle') {
+            await note(`checkin ${done.action}${done.outcome?.message ? ` (${done.outcome.message})` : ''}`);
+          }
+        } catch (error) {
+          await note(`checkin pass failed: ${error?.message || error}`);
+        }
       }
     } catch (error) {
       await note(`watch pass failed: ${error?.message || error}`);
@@ -160,6 +196,8 @@ async function main(argv) {
       return cmdSync({ force });
     case 'restore':
       return cmdRestore();
+    case 'checkin':
+      return cmdCheckin();
     case 'doctor':
       return cmdDoctor();
     case 'install':
@@ -185,7 +223,7 @@ async function main(argv) {
       return 0;
     }
     default:
-      out('usage: raccoon-magpie.js <status|sync|apply|restore|doctor|install|uninstall|watch> [--force]');
+      out('usage: raccoon-magpie.js <status|sync|apply|restore|checkin|doctor|install|uninstall|watch> [--force]');
       return 2;
   }
 }

@@ -80,8 +80,16 @@ only when new grant bills appeared, and `already checked in today` otherwise.
   not the bridge's.
 
 ```bash
-node bin/raccoon-magpie.js checkin     # claim now, ignoring the schedule
+node bin/raccoon-magpie.js checkin          # show the schedule and the last result
+node bin/raccoon-magpie.js checkin at 07:30 # set the time (Beijing), switching it on
+node bin/raccoon-magpie.js checkin on        # switch it on
+node bin/raccoon-magpie.js checkin off       # switch it off
+node bin/raccoon-magpie.js checkin now       # claim now, ignoring the schedule
 ```
+
+The schedule is set from the CLI because Magpie's agent descriptor has no writable
+field for it; a field declared there would be ignorable, which is worse than not
+declaring one.
 
 State lives in `~/.config/magpie-raccoon-bridge/checkin.json`. The token is read
 from Raccoon's own `auth.json` and never refreshed or written by this bridge.

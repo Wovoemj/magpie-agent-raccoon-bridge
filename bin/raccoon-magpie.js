@@ -19,7 +19,8 @@ import {
   reconcileCheckin,
 } from '../lib/supervise.js';
 import { loadCheckin } from '../lib/checkin.js';
-import { configDir, configFile, raccoonProfile, readJSON, sleep } from '../lib/util.js';
+import { normalizeAt } from '../lib/clock.js';
+import { atomicWrite, configDir, configFile, raccoonProfile, readJSON, sleep } from '../lib/util.js';
 
 const LOG = path.join(configDir(), 'plugin.log');
 
@@ -89,7 +90,39 @@ async function cmdRestore() {
   return 0;
 }
 
-async function cmdCheckin() {
+async function cmdCheckinConfig(args) {
+  // `checkin` with a time argument is how the schedule is set: Magpie's agent
+  // descriptor has no writable field for it, so the CLI is the honest surface.
+  const file = path.join(configDir(), 'checkin.json');
+  const state = loadCheckin(readJSON, file);
+  const action = args[0];
+  if (!action || action === 'status') {
+    out(state);
+    return 0;
+  }
+  let next = state;
+  if (action === 'off') next = { ...state, enabled: false };
+  else if (action === 'on') next = { ...state, enabled: true };
+  else if (action === 'at') {
+    const at = normalizeAt(args[1]);
+    if (!/^\d{2}:\d{2}$/.test(at)) {
+      out('usage: raccoon-magpie.js checkin at HH:MM | on | off');
+      return 2;
+    }
+    next = { ...state, enabled: true, at };
+  } else if (action === 'now') {
+    return cmdCheckinNow();
+  } else {
+    out('usage: raccoon-magpie.js checkin [status|at HH:MM|on|off|now]');
+    return 2;
+  }
+  await atomicWrite(file, `${JSON.stringify(next, null, 2)}
+`);
+  out({ saved: file, state: next });
+  return 0;
+}
+
+async function cmdCheckinNow() {
   // A person at a terminal means "check in now", so the schedule and the
   // already-done-today guard are both bypassed. The diff still decides the
   // outcome, so a repeat run honestly reports "already checked in".
@@ -197,7 +230,7 @@ async function main(argv) {
     case 'restore':
       return cmdRestore();
     case 'checkin':
-      return cmdCheckin();
+      return cmdCheckinConfig(argv.slice(1));
     case 'doctor':
       return cmdDoctor();
     case 'install':

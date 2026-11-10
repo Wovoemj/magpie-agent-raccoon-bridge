@@ -18,16 +18,12 @@ export const agent = {
   format: 'json',
   model: 'model',
   ua: ['raccoon-magpie-bridge'],
-  // Magpie renders these under the switch, so the daily grant has a time the user
-  // can see and change without opening the config.
-  options: [
-    { key: 'checkin_at', label: 'Daily check-in (Beijing, HH:MM, empty = off)', value: '09:00' },
-  ],
   notice:
     'Turn this on to put the Magpie model into the Raccoon model menu. Your Raccoon login and ' +
     'account are not affected. The first takeover takes a few seconds; then reopen the model ' +
-    'dropdown once to see it. The daily check-in that claims your Raccoon credits runs on its ' +
-    'own schedule (09:00 Beijing by default) whether this switch is on or off.',
+    'dropdown once to see it. The daily check-in that claims your Raccoon credits runs at 09:00 ' +
+    'Beijing time by default, whether this switch is on or off; change it with ' +
+    '"raccoon-magpie.js checkin at HH:MM".',
 };
 
 export function connect({ gateway, model, models } = {}) {

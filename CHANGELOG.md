@@ -1,5 +1,17 @@
 # Changelog
 
+## 未发布
+
+### 新增
+
+- **浏览器登录。** `raccoon-magpie.js login` 走小浣熊网页版自己的授权流程：`/code/authorize`
+  带 `desktop_callback=loopback`，回调到 `127.0.0.1:<随机端口>/auth/callback`，再用授权码
+  换令牌。这样**没装小浣熊客户端**的机器也能用——那种情况下 `config.yaml` 还不存在，
+  模型菜单本来没有地方可写。`logout` 移除本机登录态。
+  - state 为 64 位十六进制，不匹配的回调被拒绝且不会中止正在进行的那次登录
+  - 授权码只能换一次，过期（`200035`）明确报「请重新登录」，不当作网络错误重试
+  - 令牌写入 `auth.json`，`0600`，只动 `access_token` / `office_identity`，其余键保留
+
 ## 0.2.0
 
 ### Packaging

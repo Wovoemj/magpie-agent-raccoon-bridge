@@ -15,6 +15,7 @@ const SUITES = [
   'supervise.test.mjs',
   'app-reader.test.mjs',
   'checkin.test.mjs',
+  'login.test.mjs',
 ];
 
 let passed = 0;

@@ -19,6 +19,7 @@ import {
   reconcileCheckin,
 } from '../lib/supervise.js';
 import { loadCheckin } from '../lib/checkin.js';
+import { browserSignIn, saveLogin } from '../lib/login.js';
 import { normalizeAt } from '../lib/clock.js';
 import { atomicWrite, configDir, configFile, raccoonProfile, readJSON, sleep } from '../lib/util.js';
 
@@ -116,8 +117,7 @@ async function cmdCheckinConfig(args) {
     out('usage: raccoon-magpie.js checkin [status|at HH:MM|on|off|now]');
     return 2;
   }
-  await atomicWrite(file, `${JSON.stringify(next, null, 2)}
-`);
+  await atomicWrite(file, JSON.stringify(next, null, 2) + '\n');
   out({ saved: file, state: next });
   return 0;
 }
@@ -138,6 +138,67 @@ async function cmdCheckinNow() {
   });
   const bad = ['failed', 'signed-out'].includes(result.outcome?.outcome);
   return bad ? 1 : 0;
+}
+
+async function cmdLogin(args) {
+  // Sign in through the browser, the same way the Raccoon client does. This is
+  // the only path that needs no existing client install: the model menu lives in
+  // config.yaml, which the client creates on first sign-in.
+  const profile = raccoonProfile();
+  const open = async (url) => {
+    // Report the URL before trying to open it: on a headless or locked-down
+    // machine the browser may not start at all, and the URL is still usable.
+    process.stdout.write(`
+在浏览器完成登录：
+${url}
+
+`);
+    const { spawn } = await import('node:child_process');
+    const command =
+      process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin' ? ['open', [url]]
+      : ['xdg-open', [url]];
+    try {
+      spawn(command[0], command[1], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
+    } catch {}
+  };
+
+  const result = await browserSignIn({ open });
+  if (!result.ok) {
+    out({ ok: false, error: result.error });
+    return 1;
+  }
+  const saved = await saveLogin(profile, result, { identity: guessIdentity(result.claims) });
+  out({
+    ok: true,
+    file: saved.file,
+    identity: saved.identity,
+    expires: saved.expires ? new Date(saved.expires).toISOString() : null,
+  });
+  return 0;
+}
+
+/** The account's identity, as the client records it. Corporate seats answer more. */
+function guessIdentity(claims) {
+  const value = claims && (claims.office_identity || claims.org || claims.tenant);
+  return typeof value === 'string' && value.trim() ? value.trim() : 'personal';
+}
+
+async function cmdLogout() {
+  // Removing the token is the honest way out: it cannot be un-refreshed, and the
+  // next sync will refuse to invent a sign-in.
+  const file = path.join(raccoonProfile(), 'agent', 'config', 'auth.json');
+  const existing = readJSON(file);
+  if (!existing) {
+    out({ ok: true, removed: false, reason: 'not signed in' });
+    return 0;
+  }
+  const next = { ...existing };
+  delete next.access_token;
+  delete next.accessToken;
+  await atomicWrite(file, JSON.stringify(next) + '\n', 0o600);
+  out({ ok: true, removed: true, file });
+  return 0;
 }
 
 async function cmdDoctor() {
@@ -231,6 +292,10 @@ async function main(argv) {
       return cmdRestore();
     case 'checkin':
       return cmdCheckinConfig(argv.slice(1));
+    case 'login':
+      return cmdLogin(argv.slice(1));
+    case 'logout':
+      return cmdLogout();
     case 'doctor':
       return cmdDoctor();
     case 'install':
@@ -256,7 +321,7 @@ async function main(argv) {
       return 0;
     }
     default:
-      out('usage: raccoon-magpie.js <status|sync|apply|restore|checkin|doctor|install|uninstall|watch> [--force]');
+      out('usage: raccoon-magpie.js <status|sync|apply|restore|checkin|login|logout|doctor|install|uninstall|watch> [--force]');
       return 2;
   }
 }

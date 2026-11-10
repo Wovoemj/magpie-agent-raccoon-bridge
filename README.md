@@ -63,6 +63,8 @@ node bin/raccoon-magpie.js checkin at 07:30  # 设定时间（北京时间），
 node bin/raccoon-magpie.js checkin on        # 开启
 node bin/raccoon-magpie.js checkin off       # 关闭
 node bin/raccoon-magpie.js checkin now       # 立即签到，忽略时间设置
+node bin/raccoon-magpie.js login             # 浏览器登录，写回登录态
+node bin/raccoon-magpie.js logout            # 移除本机登录态
 ```
 
 时间设置走命令行，是因为 Magpie 的 agent 描述符没有可写字段；在那里声明一个字段只会变成一个点了没反应的控件，比不声明更糟。
@@ -95,8 +97,29 @@ npm 包与仓库内容一致；用 npm 包名安装时，插件卡片还能拿�
 
 ### 前提条件
 
-- 已安装小浣熊桌面端，并且至少登录过一次，使 `<配置目录>/agent/config/config.yaml` 存在。本插件不会凭空创建这个文件：没东西可改时它会明说，而不是写一份小浣熊还得被说服去信任的配置。
+- `<配置目录>/agent/config/config.yaml` 必须存在。本插件不会凭空创建它：没东西可改时会明说，
+  而不是写一份小浣熊还得被说服去信任的配置。这个文件由小浣熊客户端首次登录时生成；
+  **没装客户端也可以用浏览器登录来生成**，见下节。
 - Magpie 里至少配置了一个模型或路由组。
+
+### 浏览器登录（没装客户端也能用）
+
+```bash
+node bin/raccoon-magpie.js login     # 打开浏览器，授权后自动写回登录态
+node bin/raccoon-magpie.js logout    # 移除本机登录态
+```
+
+走的是小浣熊网页版自己的授权流程：`/code/authorize` 带 `desktop_callback=loopback`，
+回调到 `127.0.0.1:<随机端口>/auth/callback`，再用授权码换令牌
+（`/api/web/auth/v1/login_with_authorization_code`）。几点是刻意的：
+
+- **state 为 64 位十六进制**，回调必须一字不差地带回；不匹配的回调会被拒绝，
+  且**不会中止**正在进行的那次登录——误开的标签页不该毁掉你正在做的事。
+- 回调只接受 `Host` 完全等于 `127.0.0.1:<端口>`、路径为 `/auth/callback` 的 GET。
+- 授权码只能换一次；厂商回 `200035` 表示码已失效，此时直接报「请重新发起登录」，
+  而不是当成网络错误反复重试。
+- 令牌写入 `<配置目录>/agent/config/auth.json`，权限 `0600`，只写 `access_token` 与
+  `office_identity` 两个字段，文件里原有的其他键（如果有）保持不动。
 
 ### 用本地目录安装
 

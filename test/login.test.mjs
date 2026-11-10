@@ -140,3 +140,119 @@ export default {
     fs.rmSync(root, { recursive: true, force: true });
   },
 };
+
+// ---- Renewal and the paste fallback ----------------------------------------
+
+export const renewal = {
+  async 'a refresh returns a new access token and keeps the old refresh token'(t) {
+    const original = globalThis.fetch;
+    let seen;
+    globalThis.fetch = async (url, init) => {
+      seen = { url, init };
+      return { ok: true, status: 200, json: async () => ({ data: { access_token: 'new-access' } }) };
+    };
+    try {
+      const { refreshAccess } = await import('../lib/login.js');
+      const result = await refreshAccess({ refresh: 'old-refresh', base: BASE });
+      assert.equal(seen.url, `${BASE}/api/web/auth/v1/refresh`);
+      assert.deepEqual(JSON.parse(seen.init.body), { refresh_token: 'old-refresh' });
+      assert.equal(result.access, 'new-access');
+      // The vendor did not rotate it; keeping it is what stops the session ending.
+      assert.equal(result.refresh, 'old-refresh');
+    } finally {
+      globalThis.fetch = original;
+    }
+  },
+
+  async 'a rotated refresh token is stored, not the old one'() {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { access_token: 'a2', refresh_token: 'r2' } }),
+    });
+    try {
+      const { refreshAccess } = await import('../lib/login.js');
+      const result = await refreshAccess({ refresh: 'r1', base: BASE });
+      assert.equal(result.refresh, 'r2');
+    } finally {
+      globalThis.fetch = original;
+    }
+  },
+
+  async 'a rejected refresh token is reported as a sign-in problem'() {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ message: 'refresh token expired' }),
+    });
+    try {
+      const { refreshAccess } = await import('../lib/login.js');
+      // A 4xx cannot be fixed by retrying, so it must be distinguishable from a
+      // network error — otherwise the loop retries a dead credential forever.
+      await assert.rejects(
+        refreshAccess({ refresh: 'dead', base: BASE }),
+        (error) => error.code === 'SIGNED_OUT',
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  },
+
+  'renewing without a refresh token says so instead of calling the API'() {
+    return import('../lib/login.js').then(async ({ refreshAccess }) => {
+      await assert.rejects(refreshAccess({ refresh: '' }), (error) => error.code === 'NO_REFRESH');
+    });
+  },
+
+  'staleness is measured against the token expiry, not a fixed age'() {
+    return import('../lib/login.js').then(({ isStale }) => {
+      const soon = { expires: Date.now() + 60 * 1000 };
+      const far = { expires: Date.now() + 60 * 60 * 1000 };
+      assert.equal(isStale(soon), true, 'inside the 5 minute margin');
+      assert.equal(isStale(far), false);
+      // A token with no exp cannot be judged, and must not be refreshed blindly.
+      assert.equal(isStale({ expires: 0 }), false);
+    });
+  },
+};
+
+export const paste = {
+  async 'a callback URL yields its code'() {
+    const { parsePasted } = await import('../lib/login.js');
+    const parsed = parsePasted('http://127.0.0.1:5000/auth/callback?code=abc123&state=ff');
+    assert.equal(parsed.code, 'abc123');
+  },
+
+  async 'a callback with the wrong state is refused'() {
+    const { parsePasted } = await import('../lib/login.js');
+    assert.throws(
+      () => parsePasted('http://127.0.0.1:5000/auth/callback?code=abc&state=other', { expectedState: 'mine' }),
+      /state/,
+    );
+  },
+
+  async 'a bare JWT is taken as the access token'() {
+    const { parsePasted } = await import('../lib/login.js');
+    const token = `${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify({ exp: 1900000000 })).toString('base64url')}.sig`;
+    const parsed = parsePasted(token);
+    assert.equal(parsed.access, token);
+    assert.equal(parsed.expires, 1900000000 * 1000);
+  },
+
+  async 'a JSON pair is taken as both tokens'() {
+    const { parsePasted } = await import('../lib/login.js');
+    const parsed = parsePasted(JSON.stringify({ access_token: 'a', refresh_token: 'r' }));
+    assert.equal(parsed.access, 'a');
+    assert.equal(parsed.refresh, 'r');
+  },
+
+  async 'junk is rejected with a useful message'() {
+    const { parsePasted } = await import('../lib/login.js');
+    assert.throws(() => parsePasted(''), /请粘贴/);
+    assert.throws(() => parsePasted('not a url'), /无效/);
+    assert.throws(() => parsePasted('http://127.0.0.1:1/auth/callback'), /没有授权码/);
+    assert.throws(() => parsePasted('{"broken":'), /JSON/);
+  },
+};

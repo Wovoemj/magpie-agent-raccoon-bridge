@@ -19,7 +19,15 @@ import {
   reconcileCheckin,
 } from '../lib/supervise.js';
 import { loadCheckin } from '../lib/checkin.js';
-import { browserSignIn, saveLogin } from '../lib/login.js';
+import {
+  browserSignIn,
+  exchangeCode,
+  isStale,
+  parsePasted,
+  readLogin,
+  refreshAccess,
+  saveLogin,
+} from '../lib/login.js';
 import { normalizeAt } from '../lib/clock.js';
 import { atomicWrite, configDir, configFile, raccoonProfile, readJSON, sleep } from '../lib/util.js';
 
@@ -140,40 +148,148 @@ async function cmdCheckinNow() {
   return bad ? 1 : 0;
 }
 
-async function cmdLogin(args) {
-  // Sign in through the browser, the same way the Raccoon client does. This is
-  // the only path that needs no existing client install: the model menu lives in
-  // config.yaml, which the client creates on first sign-in.
-  const profile = raccoonProfile();
-  const open = async (url) => {
-    // Report the URL before trying to open it: on a headless or locked-down
-    // machine the browser may not start at all, and the URL is still usable.
-    process.stdout.write(`
-在浏览器完成登录：
-${url}
-
-`);
-    const { spawn } = await import('node:child_process');
-    const command =
-      process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+async function openInBrowser(url) {
+  // Report the URL first: on a headless or locked-down machine the browser may
+  // never start, and the URL is still the way to sign in.
+  process.stdout.write(`\n在浏览器完成登录：\n${url}\n\n`);
+  const { spawn } = await import('node:child_process');
+  const command =
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
       : process.platform === 'darwin' ? ['open', [url]]
-      : ['xdg-open', [url]];
-    try {
-      spawn(command[0], command[1], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
-    } catch {}
-  };
+        : ['xdg-open', [url]];
+  try {
+    spawn(command[0], command[1], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
+  } catch {
+    // Pasting the callback URL still works, which is why it is printed above.
+  }
+}
 
-  const result = await browserSignIn({ open });
+/** Read a line from stdin, for the paste fallback. */
+async function ask(question) {
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+async function cmdLogin(args) {
+  // Three ways in, in the order the Raccoon web flow offers them:
+  //   1. browser + automatic loopback return (the default)
+  //   2. the desktop client's existing sign-in (read only, never spent)
+  //   3. paste a callback link or token, for browsers where 1 cannot work
+  const profile = raccoonProfile();
+  const mode = args[0] || 'browser';
+
+  if (mode === 'desktop') {
+    const existing = readLogin(profile);
+    if (!existing) {
+      out({ ok: false, error: '没有找到小浣熊客户端的登录态，请改用 login（浏览器）' });
+      return 1;
+    }
+    out({
+      ok: true,
+      source: 'desktop',
+      file: existing.file,
+      identity: existing.identity,
+      expires: existing.expires ? new Date(existing.expires).toISOString() : null,
+    });
+    return 0;
+  }
+
+  if (mode === 'manual' || mode === 'paste') {
+    const pasted = await ask('粘贴回调链接、access_token，或包含两者的 JSON：\n> ');
+    let tokens;
+    try {
+      const parsed = parsePasted(pasted, {});
+      tokens = parsed.code ? await exchangeCode({ code: parsed.code }) : parsed;
+    } catch (error) {
+      out({ ok: false, error: error.message });
+      return 1;
+    }
+    const saved = await saveLogin(profile, tokens, { identity: guessIdentity(tokens.claims) });
+    out({
+      ok: true,
+      source: 'manual',
+      file: saved.file,
+      identity: saved.identity,
+      expires: saved.expires ? new Date(saved.expires).toISOString() : null,
+    });
+    return 0;
+  }
+
+  const result = await browserSignIn({ open: openInBrowser });
   if (!result.ok) {
-    out({ ok: false, error: result.error });
+    out({ ok: false, error: result.error, hint: '可改用 login manual 粘贴回调链接' });
     return 1;
   }
   const saved = await saveLogin(profile, result, { identity: guessIdentity(result.claims) });
   out({
     ok: true,
+    source: 'browser',
     file: saved.file,
     identity: saved.identity,
     expires: saved.expires ? new Date(saved.expires).toISOString() : null,
+  });
+  return 0;
+}
+
+/**
+ * Bring the stored sign-in back to life before a request needs it.
+ *
+ * Called from the sync loop rather than on every request: refreshing on a timer
+ * that is already running costs nothing, while refreshing inside a request path
+ * would put a network round trip in front of the user's menu.
+ */
+async function cmdRenew() {
+  const profile = raccoonProfile();
+  const current = readLogin(profile);
+  if (!current) {
+    out({ ok: false, reason: 'not signed in' });
+    return 1;
+  }
+  if (!isStale(current)) {
+    out({ ok: true, renewed: false, expires: new Date(current.expires).toISOString() });
+    return 0;
+  }
+  try {
+    const next = await refreshAccess({ refresh: current.refresh });
+    const saved = await saveLogin(profile, next, { identity: current.identity });
+    out({
+      ok: true,
+      renewed: true,
+      file: saved.file,
+      expires: saved.expires ? new Date(saved.expires).toISOString() : null,
+    });
+    return 0;
+  } catch (error) {
+    // A dead refresh token is a sign-in problem, not a bug: say so once instead of
+    // retrying a credential the server has already refused.
+    out({ ok: false, renewed: false, error: error.message, needLogin: error.code !== 'REFRESH_FAILED' });
+    return 1;
+  }
+}
+
+async function cmdWhoami() {
+  const profile = raccoonProfile();
+  const current = readLogin(profile);
+  if (!current) {
+    out({ signedIn: false });
+    return 0;
+  }
+  out({
+    signedIn: true,
+    source: 'desktop auth.json',
+    file: current.file,
+    identity: current.identity,
+    // Deliberately not the token itself: it is a credential, and this output is
+    // the kind of thing that ends up pasted into an issue.
+    expires: current.expires ? new Date(current.expires).toISOString() : null,
+    stale: isStale(current),
+    canRenew: Boolean(current.refresh),
   });
   return 0;
 }
@@ -268,6 +384,18 @@ async function cmdWatch() {
         } catch (error) {
           await note(`checkin pass failed: ${error?.message || error}`);
         }
+        // Renew a soon-to-expire sign-in here rather than in a request path: the
+        // loop is already awake, and the menu never waits on a network round trip.
+        try {
+          const current = readLogin(raccoonProfile());
+          if (current && current.refresh && isStale(current)) {
+            const next = await refreshAccess({ refresh: current.refresh });
+            await saveLogin(raccoonProfile(), next, { identity: current.identity });
+            await note(`renewed the sign-in until ${new Date(next.expires || 0).toISOString()}`);
+          }
+        } catch (error) {
+          await note(`renew failed: ${error?.message || error}`);
+        }
       }
     } catch (error) {
       await note(`watch pass failed: ${error?.message || error}`);
@@ -296,6 +424,10 @@ async function main(argv) {
       return cmdLogin(argv.slice(1));
     case 'logout':
       return cmdLogout();
+    case 'renew':
+      return cmdRenew();
+    case 'whoami':
+      return cmdWhoami();
     case 'doctor':
       return cmdDoctor();
     case 'install':
@@ -321,7 +453,7 @@ async function main(argv) {
       return 0;
     }
     default:
-      out('usage: raccoon-magpie.js <status|sync|apply|restore|checkin|login|logout|doctor|install|uninstall|watch> [--force]');
+      out('usage: raccoon-magpie.js <status|sync|apply|restore|checkin|login [browser|desktop|manual]|logout|renew|whoami|doctor|install|uninstall|watch>');
       return 2;
   }
 }

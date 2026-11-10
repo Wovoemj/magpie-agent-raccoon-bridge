@@ -105,9 +105,25 @@ npm 包与仓库内容一致；用 npm 包名安装时，插件卡片还能拿�
 ### 浏览器登录（没装客户端也能用）
 
 ```bash
-node bin/raccoon-magpie.js login     # 打开浏览器，授权后自动写回登录态
-node bin/raccoon-magpie.js logout    # 移除本机登录态
+node bin/raccoon-magpie.js login            # 浏览器登录，授权后自动写回（默认）
+node bin/raccoon-magpie.js login manual     # 粘贴回调链接 / access_token / JSON
+node bin/raccoon-magpie.js login desktop    # 只查看并使用客户端已有登录态
+node bin/raccoon-magpie.js whoami           # 当前登录态、过期时间、能否续期
+node bin/raccoon-magpie.js renew            # 临期时刷新一次
+node bin/raccoon-magpie.js logout           # 移除本机登录态
 ```
+
+三种方式对应不同的环境：
+
+| 方式 | 适用 | 做法 |
+| :--- | :--- | :--- |
+| `browser` | 默认 | 开浏览器授权，自动回环接收 |
+| `manual` | 授权页要求网页登录态、回环被拦、远程主机 | 粘贴回调链接或令牌 |
+| `desktop` | 已装并登录过客户端 | 直接沿用客户端登录态（只读） |
+
+**自动续期**：`refresh_token` 会在登录时一并存下，`watch` 进程每轮检查一次，临期
+（5 分钟内）就静默刷新，并写回 `auth.json`。刷新被服务端拒绝（4xx）时只报一次
+`needLogin`，不会拿着已经失效的凭据反复重试。
 
 走的是小浣熊网页版自己的授权流程：`/code/authorize` 带 `desktop_callback=loopback`，
 回调到 `127.0.0.1:<随机端口>/auth/callback`，再用授权码换令牌
@@ -118,8 +134,8 @@ node bin/raccoon-magpie.js logout    # 移除本机登录态
 - 回调只接受 `Host` 完全等于 `127.0.0.1:<端口>`、路径为 `/auth/callback` 的 GET。
 - 授权码只能换一次；厂商回 `200035` 表示码已失效，此时直接报「请重新发起登录」，
   而不是当成网络错误反复重试。
-- 令牌写入 `<配置目录>/agent/config/auth.json`，权限 `0600`，只写 `access_token` 与
-  `office_identity` 两个字段，文件里原有的其他键（如果有）保持不动。
+- 令牌写入 `<配置目录>/agent/config/auth.json`，权限 `0600`，只写 `access_token`、
+  `refresh_token` 与 `office_identity`，文件里原有的其他键（如果有）保持不动。
 
 ### 用本地目录安装
 

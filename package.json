@@ -1,6 +1,6 @@
 {
   "name": "magpie-agent-raccoon-bridge",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Make 商汤小浣熊 (RaccoonWork) use the model configured in Magpie, sign in from a browser, and claim its daily credits. Raccoon's own login is untouched.",
   "type": "module",
   "main": "./plugin.js",

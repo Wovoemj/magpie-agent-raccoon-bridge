@@ -4,6 +4,13 @@
 
 ### 新增
 
+- **三种登录方式**（对齐官方 provider 插件的做法）：`login`（浏览器，默认）、
+  `login manual`（粘贴回调链接 / access_token / JSON）、`login desktop`（沿用客户端登录态）。
+  `manual` 是为「授权页要求网页登录态」「回环被拦」「远程主机」这些回环走不通的环境准备的。
+- **自动续期。** 登录时一并存下 `refresh_token`，`watch` 每轮检查，临期 5 分钟内静默刷新并写回。
+  刷新被服务端拒绝（4xx）时报一次 `needLogin`，不拿失效凭据反复重试。
+- **`whoami` / `renew` 命令**：查看登录态、过期时间、是否可续期；手动触发一次续期。
+
 - **浏览器登录。** `raccoon-magpie.js login` 走小浣熊网页版自己的授权流程：`/code/authorize`
   带 `desktop_callback=loopback`，回调到 `127.0.0.1:<随机端口>/auth/callback`，再用授权码
   换令牌。这样**没装小浣熊客户端**的机器也能用——那种情况下 `config.yaml` 还不存在，

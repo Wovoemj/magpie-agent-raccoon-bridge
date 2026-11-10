@@ -23,7 +23,8 @@ const failures = [];
 
 for (const file of SUITES) {
   const module = await import(pathToFileURL(path.join(HERE, file)).href);
-  const tests = module.default;
+  const suites = Object.entries(module).filter(([name, value]) => value && typeof value === 'object');
+  const tests = Object.assign({}, ...suites.map(([, value]) => value));
   for (const [name, fn] of Object.entries(tests)) {
     const cleanups = [];
     const t = { after: (cb) => cleanups.push(cb) };

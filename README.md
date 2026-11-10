@@ -98,11 +98,20 @@ from Raccoon's own `auth.json` and never refreshed or written by this bridge.
 
 ## Install
 
-Add the repository to Magpie → **Plugins**:
+Add it to Magpie → **Plugins**, either by package name:
+
+```text
+magpie-agent-raccoon-bridge
+```
+
+or straight from the repository:
 
 ```text
 github:Wovoemj/magpie-agent-raccoon-bridge
 ```
+
+The npm package and the repository carry the same code; the npm one also gives the
+plugin card its source, licence and README instead of `npm didn't answer`.
 
 Then open Magpie → **Agents**, switch on **Raccoon · Magpie Bridge**, and pick the
 model you want Raccoon to start on.
@@ -163,9 +172,9 @@ one Magpie entry is the bridge's to manage.
 ## Troubleshooting
 
 **The plugin card is mostly empty and says `npm didn't answer: not found`.**
-The card's source, licence, downloads and README all come from npm, and this
-package is distributed from GitHub only. The bridge is unaffected: check the
-Agents page for the switch and the model list.
+The card's source, licence, downloads and README all come from npm. Install the
+package by its npm name (`magpie-agent-raccoon-bridge`) rather than `github:` and
+the card fills in. The bridge works either way.
 
 **The Agents page does not list the bridge.**
 Magpie logs the reason to `%LOCALAPPDATA%/magpie/logs/app.log`. The usual cause is

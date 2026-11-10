@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+### Packaging
+
+- Published to npm as `magpie-agent-raccoon-bridge`, so the plugin card has a
+  source, licence and README instead of `npm didn't answer`. `github:` installs
+  still work.
+- Added `repository` / `homepage` / `bugs`, and a `raccoon-magpie` command.
+
 ### Added
 
 - **Daily check-in.** Claims Raccoon's daily credits on a schedule (09:00 Beijing

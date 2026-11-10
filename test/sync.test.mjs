@@ -288,6 +288,50 @@ export default {
     assert.equal(presets[0].id, 'mine');
   },
 
+  async 'an app reset to the builtin preset does not disarm the switch'(t) {
+    const { profile } = sandbox(t);
+    const models = [model('auto/a', 'A')];
+    // Two takeovers in the past: the user has already been handed the Magpie model.
+    fs.writeFileSync(
+      path.join(process.env.MAGPIE_RACCOON_CONFIG_DIR, 'state.json'),
+      JSON.stringify({ mainMode: 'bridge', takeovers: 2 }),
+    );
+    // The app reset the file to its builtin preset on its own.
+    fs.writeFileSync(
+      configFile(profile),
+      read(profile)
+        .replace(/^( {4}use_default_remote_preset: ).*$/m, '$1true')
+        .replace(/^( {4}remote_base_url: ).*$/m, '$1"https://xiaohuanxiong.com/api/web/llm/v2"')
+        .replace(/^( {4}remote_model_id: ).*$/m, '$1"sn-deepseek-v4-1-flash-1017"'),
+    );
+    const result = await apply({ models, gateway: GATEWAY, key: KEY, select: null, profile });
+    assert.equal(result.mainMode, 'bridge', 'the switch takes it back');
+    assert.equal(readLlmBlock(read(profile)).remote_model_id, 'auto/a');
+  },
+
+  async 'a deliberate move to a saved service is still respected'(t) {
+    const { profile } = sandbox(t);
+    fs.writeFileSync(
+      path.join(process.env.MAGPIE_RACCOON_CONFIG_DIR, 'state.json'),
+      JSON.stringify({ mainMode: 'bridge', takeovers: 5 }),
+    );
+    pickInApp(profile, {
+      baseUrl: 'https://api.example.com/v1',
+      key: 'sk-x',
+      modelId: 'gpt-4',
+      preset: 'mine',
+    });
+    const result = await apply({
+      models: [model('auto/a', 'A')],
+      gateway: GATEWAY,
+      key: KEY,
+      select: null,
+      profile,
+    });
+    assert.equal(result.mainMode, 'user');
+    assert.equal(readLlmBlock(read(profile)).remote_model_id, 'gpt-4');
+  },
+
   async 'a second apply with an unchanged catalog is a no-op'(t) {
     const { profile } = sandbox(t);
     const models = [model('auto/a', 'A')];

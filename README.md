@@ -1,206 +1,172 @@
-# Raccoon · Magpie Bridge
+# 小浣熊 · Magpie 桥
 
-Make **商汤小浣熊** (SenseTime Raccoon, `@raccoonoffice-desktop`) use every model and
-routing group configured in Magpie. The model menu returns the Magpie catalog;
-Raccoon's own login, account and credits are left untouched.
+让 **商汤小浣熊**（SenseTime Raccoon，`@raccoonoffice-desktop`）直接使用 Magpie 里配置的模型与路由组。模型菜单里会出现 Magpie 当前选中的模型；小浣熊自身的登录、账号与积分不受影响。
 
-Built on the same idea as [`magpie-agent-cursor-bridge`](https://github.com/932633145/magpie-agent-cursor-bridge)
-and `magpie-agent-trae-bridge`, but adapted to how Raccoon actually resolves models.
+思路与 [`magpie-agent-cursor-bridge`](https://github.com/932633145/magpie-agent-cursor-bridge) 和 `magpie-agent-trae-bridge` 一致，但按小浣熊实际的取模方式来适配。
 
 ---
 
-## Why this is not a proxy bridge
+## 为什么这里不需要代理
 
-Cursor and Trae need a local TLS proxy because their model traffic is pinned to a
-vendor endpoint. Raccoon does not:
+Cursor 和 Trae 需要本地 TLS 代理，因为它们的模型流量被钉在厂商域名上。小浣熊不是这样：
 
-- its model menu is driven by a saved list of **model presets**, each carrying its
-  own `remoteBaseUrl` / `remoteApiKey` / `remoteModelId`;
-- selecting a preset sends `POST ${remoteBaseUrl}/chat/completions` with
-  `Authorization: Bearer ${remoteApiKey}`.
+- 它的模型菜单由一份**模型方案**列表驱动，每条方案自带 `remoteBaseUrl` / `remoteApiKey` / `remoteModelId`；
+- 选中某条方案时，客户端发出 `POST ${remoteBaseUrl}/chat/completions`，带上 `Authorization: Bearer ${remoteApiKey}`。
 
-That is a native bring-your-own-endpoint path. Magpie already serves an
-OpenAI-compatible gateway, so the honest integration is to **write Magpie's models
-into that preset list** — no certificate, no proxy, no patched `app.asar`.
+这是一条原生的「自带服务端点」通路。Magpie 本身已是 OpenAI 兼容网关，所以最直接的接法就是**把 Magpie 的模型写进这份方案列表**——不需要证书、不需要代理、也不用改 `app.asar`。
 
 ```
-Magpie agent plugin → writes connection.json (gateway, key, picked model)
-                                ↓
-                     hidden watcher (this bridge)
-                     ├─ probes GET /v1/models on the gateway
-                     ├─ rewrites Raccoon's model presets
-                     └─ restores them byte-exactly on disconnect
-                                ↓
-Raccoon model menu ──[per-preset endpoint]──> Magpie gateway ──> providers
+Magpie 插件 → 写入 connection.json（网关、key、选中的模型）
+                          ↓
+                后台同步进程（本插件）
+                ├─ 探测网关 GET /v1/models
+                ├─ 重写小浣熊的模型方案
+                └─ 断开时按字节还原
+                          ↓
+小浣熊模型菜单 ──[每条方案自己的端点]──> Magpie 网关 ──> 各提供商
 ```
 
-What is written, and what is not:
+写入范围：
 
-| File | Treatment |
+| 文件 | 处理方式 |
 | :--- | :--- |
-| `%USERPROFILE%\.office-raccoon\agent\config\config.yaml` | rewritten in place, only the owned scalars |
-| `%USERPROFILE%\.office-raccoon\agent\config\auth.json` | **never written**, never read for tokens |
+| `%USERPROFILE%\.office-raccoon\agent\config\config.yaml` | 就地改写，只动它自己的那几个标量 |
+| `%USERPROFILE%\.office-raccoon\agent\config\auth.json` | **从不写入**，也不从中读取令牌 |
 
 ---
 
-## Features
+## 功能
 
-- **One entry, not a dump**: the menu carries the single model Magpie is set to,
-  under the label Magpie gives it. Switching models in Magpie replaces that entry
-  instead of piling up the whole catalog.
-- **Per-model limits**: `context_window` / `max_output_tokens` are copied from the
-  gateway, so Raccoon's own context accounting stays honest.
-- **Two-way respect**: a model you pick in Raccoon is never overwritten by a later
-  sync; a model you pick in Magpie takes the main model back.
-- **Deletions stick**: a Magpie entry you remove from the menu stays removed.
-- **Byte-exact undo**: disconnect restores the original file, unless you have since
-  changed models — then your newer choice is kept and only the Magpie entry goes.
-- **No-op friendly**: an unchanged catalog does not rewrite the file at all.
-- **Daily check-in**: claims Raccoon's daily credits at 09:00 Beijing time, and
-  reports what actually landed rather than what the request returned.
+- **只放一条，不倾倒目录**：菜单里只有 Magpie 当前选定的那个模型，用 Magpie 给的名称显示。在 Magpie 里换模型是**替换**这一条，而不是越积越多。
+- **沿用模型限额**：`context_window` / `max_output_tokens` 取自网关，小浣熊的上下文计算保持真实。
+- **双向尊重**：你在小浣熊里选的模型，后续同步不会覆盖；你在 Magpie 里选定后，主模型会切过去。
+- **删除会保留**：你在菜单里删掉的 Magpie 条目，不会被下次同步加回来。
+- **按字节还原**：断开时恢复原始文件；若你之后自己换过模型，则保留你的新选择，只清掉 Magpie 那一条。
+- **无变化不写盘**：模型目录没变时完全不改文件。
+- **每日签到**：每天北京时间 09:00 领取小浣熊积分，并如实报告**实际到账**多少，而不是只看请求是否成功。
 
 ---
 
-## Daily check-in
+## 每日签到
 
-Raccoon has no dedicated check-in endpoint: loading
-`/api/web/office/v3/setting_info` with the account token is what triggers the
-daily grant. A check-in therefore snapshots today's grant bills, touches that
-endpoint, then diffs the bills again.
+小浣熊没有专门的签到接口：带账号令牌加载 `/api/web/office/v3/setting_info` 就会触发当日发放。所以一次签到是「先快照今日的发放账单 → 请求该接口 → 再读一次账单做差集」。
 
-That diff is the point. Reporting the HTTP status would mean claiming `+300`
-on every run and calling a silent failure a success; the diff reports `claimed`
-only when new grant bills appeared, and `already checked in today` otherwise.
+这个差集是关键。若只报 HTTP 状态，每次都会声称 `+300`，还会把静默失败当成成功；只有出现**新的发放记录**才报 `claimed`，否则报「今日已签到」。
 
-- The schedule is evaluated in **Beijing time**, because that is where the vendor
-  cuts the day. A laptop in another timezone still checks in once per Beijing day.
-- A failed attempt leaves the day **pending**, so the next pass retries instead of
-  silently losing the day's credits. A refused sign-in waits for you instead.
-- It runs whether or not the model switch is on: the credits are the account's,
-  not the bridge's.
+- 时间按**北京时间**判定，因为厂商在北京零点切日。换个时区的电脑，也仍是每个北京日只签一次。
+- 失败时当天**保持待签**，下一轮重试，不会静默丢掉当天积分。登录被拒则等你重新登录，不空转重试。
+- 无论模型开关是否打开都会执行：积分是账号的，不是这个桥的。
 
 ```bash
-node bin/raccoon-magpie.js checkin          # show the schedule and the last result
-node bin/raccoon-magpie.js checkin at 07:30 # set the time (Beijing), switching it on
-node bin/raccoon-magpie.js checkin on        # switch it on
-node bin/raccoon-magpie.js checkin off       # switch it off
-node bin/raccoon-magpie.js checkin now       # claim now, ignoring the schedule
+node bin/raccoon-magpie.js checkin           # 查看时间设置与上次结果
+node bin/raccoon-magpie.js checkin at 07:30  # 设定时间（北京时间），同时开启
+node bin/raccoon-magpie.js checkin on        # 开启
+node bin/raccoon-magpie.js checkin off       # 关闭
+node bin/raccoon-magpie.js checkin now       # 立即签到，忽略时间设置
 ```
 
-The schedule is set from the CLI because Magpie's agent descriptor has no writable
-field for it; a field declared there would be ignorable, which is worse than not
-declaring one.
+时间设置走命令行，是因为 Magpie 的 agent 描述符没有可写字段；在那里声明一个字段只会变成一个点了没反应的控件，比不声明更糟。
 
-State lives in `~/.config/magpie-raccoon-bridge/checkin.json`. The token is read
-from Raccoon's own `auth.json` and never refreshed or written by this bridge.
+状态存放在 `~/.config/magpie-raccoon-bridge/checkin.json`。令牌读取小浣熊自己的 `auth.json`，本插件既不会刷新也不会写入它。
 
 ---
 
-## Install
+## 安装
 
-Add it to Magpie → **Plugins**, either by package name:
+在 Magpie → **插件** 里添加，二选一。
+
+用包名：
 
 ```text
 magpie-agent-raccoon-bridge
 ```
 
-or straight from the repository:
+或直接用仓库地址：
 
 ```text
 github:Wovoemj/magpie-agent-raccoon-bridge
 ```
 
-The npm package and the repository carry the same code; the npm one also gives the
-plugin card its source, licence and README instead of `npm didn't answer`.
+npm 包与仓库内容一致；用 npm 包名安装时，插件卡片还能拿到源码地址、许可证和说明文档，不会显示 `npm 没有响应`。
 
-Then open Magpie → **Agents**, switch on **Raccoon · Magpie Bridge**, and pick the
-model you want Raccoon to start on.
+然后在 Magpie → **Agents** 打开 **小浣熊 · Magpie 桥** 的开关，并选定要让小浣熊默认使用的模型。
 
-Finally refresh Raccoon's model dropdown (or open the chat panel once). No restart
-of Raccoon is needed for the preset list; the app re-reads it when the menu opens.
+最后刷新一次小浣熊的模型下拉框（或打开一次对话面板）。方案列表不需要重启小浣熊，菜单打开时它会重新读取。
 
-### Requirements
+### 前提条件
 
-- Raccoon desktop client installed and signed in at least once, so that
-  `<profile>/agent/config/config.yaml` exists. The bridge refuses to invent that
-  file: with nothing to edit it says so instead of writing a config Raccoon would
-  then have to be told to trust.
-- At least one model or routing group configured in Magpie.
+- 已安装小浣熊桌面端，并且至少登录过一次，使 `<配置目录>/agent/config/config.yaml` 存在。本插件不会凭空创建这个文件：没东西可改时它会明说，而不是写一份小浣熊还得被说服去信任的配置。
+- Magpie 里至少配置了一个模型或路由组。
 
-### Install as a folder instead
+### 用本地目录安装
 
-Magpie also accepts a local path or a packed tarball. That is useful while
-developing, but the plugin card will report `npm didn't answer` because the
-package is not published — the bridge itself still works.
+Magpie 也接受本地路径或打包好的 tgz。开发时方便，但插件卡片会显示 `npm 没有响应`，因为包里没有 npm 元数据——功能本身不受影响。
 
 ---
 
-## Commands
+## 命令
 
 ```bash
-node bin/raccoon-magpie.js status     # what Magpie says, what Raccoon has, what the bridge did
-node bin/raccoon-magpie.js doctor     # probe the gateway, list groups, check login
-node bin/raccoon-magpie.js sync       # one reconcile pass (--force ignores the cache)
-node bin/raccoon-magpie.js apply      # write the catalog without waiting for Magpie
-node bin/raccoon-magpie.js restore    # hand Raccoon its own menu back
-node bin/raccoon-magpie.js install    # register the hidden watcher at login
-node bin/raccoon-magpie.js uninstall  # restore + remove the watcher
+node bin/raccoon-magpie.js status     # Magpie 的状态、小浣熊的状态、桥做了什么
+node bin/raccoon-magpie.js doctor     # 探测网关、列出分组、检查登录
+node bin/raccoon-magpie.js sync       # 执行一次同步（--force 忽略缓存）
+node bin/raccoon-magpie.js apply      # 不等 Magpie，直接写入目录
+node bin/raccoon-magpie.js restore    # 把小浣熊自己的菜单还回去
+node bin/raccoon-magpie.js install    # 注册开机自启的后台进程
+node bin/raccoon-magpie.js uninstall  # 还原并移除自启
 ```
 
-`watch` is what the login entry runs; it polls Magpie's switch every 5 seconds.
+开机自启运行的是 `watch`，每 5 秒检查一次 Magpie 的开关。
 
 ---
 
-## How the main model is chosen
+## 主模型是怎么定的
 
-The preset list and the active model are treated separately, on purpose:
+方案列表和「当前主模型」是分开处理的，这是有意为之：
 
-1. Magpie has an explicit pick (`connection.model`) → the bridge points the main
-   model at it.
-2. The active entry is already the Magpie entry → the bridge keeps it selected so
-   its limits stay fresh after a catalog change.
-3. `use_default_remote_preset` is true → Raccoon is still on its builtin catalog,
-   so the bridge takes over.
+1. Magpie 有明确指定（`connection.model`）→ 主模型指向它。
+2. 当前选中的就是 Magpie 那一条 → 继续保持选中，让限额随目录更新。
+3. `use_default_remote_preset` 为真 → 小浣熊还在用自己的内置目录，由本插件接管。
 
-Your own saved services and Raccoon's builtin models are never rewritten — only the
-one Magpie entry is the bridge's to manage.
-4. Anything else → you chose it yourself. The bridge refreshes the preset list and
-   leaves your model alone.
+你自己保存的服务和小浣熊的内置模型永远不会被改写——只有 Magpie 那一条归本插件管。
+
+4. 其余情况 → 认定是你自己的选择，只刷新方案列表，不动你的模型。
+
+补充一点：小浣熊自己也会在更新后、或某条方案失效时回落到内置模型，这在文件里看起来和「用户手动切换」一模一样。两者靠历史区分：**切回内置模型**只在前两次算你的选择，之后识别为应用重置并收回；**切到你自己保存的服务**则永远尊重。
 
 ---
 
-## Troubleshooting
+## 常见问题
 
-**The plugin card is mostly empty and says `npm didn't answer: not found`.**
-The card's source, licence, downloads and README all come from npm. Install the
-package by its npm name (`magpie-agent-raccoon-bridge`) rather than `github:` and
-the card fills in. The bridge works either way.
+**插件卡片基本是空的，并显示 `npm 没有响应: not found`。**
+卡片上的来源、许可证、下载量和说明文档都来自 npm。改用 npm 包名（`magpie-agent-raccoon-bridge`）安装即可显示；用 `github:` 也能正常工作。
 
-**The Agents page does not list the bridge.**
-Magpie logs the reason to `%LOCALAPPDATA%/magpie/logs/app.log`. The usual cause is
-a plugin spec that does not resolve, e.g. a relative path, which Magpie resolves
-against its own working directory rather than the plugins folder.
+**Agents 页面里找不到这个桥。**
+Magpie 会把原因写进 `%LOCALAPPDATA%/magpie/logs/app.log`。最常见的是插件来源无法解析，比如相对路径——Magpie 是相对它自己的工作目录解析的，不是插件目录。
 
-**The model menu does not change.**
-Turn the switch off and on once. Each toggle makes Magpie rewrite
-`connection.json`, which is what wakes the bridge.
+**模型菜单没变化。**
+把开关关掉再打开一次。每次切换都会让 Magpie 重写 `connection.json`，那才是唤醒本插件的信号。
 
-## Layout
+---
+
+## 目录结构
 
 ```text
-agent.js              Magpie agent descriptor (pure data, evaluated in a sandbox)
-plugin.js             Magpie plugin entry: watches the switch, runs reconcile
-bin/raccoon-magpie.js CLI and the hidden `watch` loop
-lib/yaml.js           line-based, byte-preserving editor for Raccoon's config
-lib/sync.js           preset merge, write, journal, restore
-lib/magpie.js         gateway discovery and catalog parsing
-lib/supervise.js      connection state and the reconcile pass
-lib/autostart.js      login entry (Startup .vbs / LaunchAgent)
+agent.js              Magpie 的 agent 描述符（纯数据，在沙箱里求值）
+plugin.js             Magpie 插件入口：监听开关、执行同步
+bin/raccoon-magpie.js 命令行与后台 watch 循环
+lib/yaml.js           逐行编辑小浣熊配置，保留原字节
+lib/sync.js           方案合并、写入、日志、还原
+lib/magpie.js         网关发现与目录解析
+lib/supervise.js      连接状态与同步流程
+lib/checkin.js        每日签到
+lib/clock.js          北京时间换算
+lib/autostart.js      开机自启（启动目录 .vbs / LaunchAgent）
 test/                 node test/run.mjs
 ```
 
 ---
 
-## License
+## 许可证
 
-MIT.
+MIT。

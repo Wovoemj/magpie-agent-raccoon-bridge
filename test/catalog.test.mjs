@@ -10,7 +10,7 @@ export default {
     assert.equal(agent.model, 'model');
     assert.ok(agent.config.endsWith('magpie-raccoon-bridge/connection.json'));
     assert.ok(agent.ua.includes('raccoon-magpie-bridge'));
-    assert.match(agent.notice, /login/);
+    assert.match(agent.notice, /登录/);
   },
 
   'connect answers at once with the catalog Magpie handed it'() {

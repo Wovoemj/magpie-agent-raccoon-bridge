@@ -19,11 +19,10 @@ export const agent = {
   model: 'model',
   ua: ['raccoon-magpie-bridge'],
   notice:
-    'Turn this on to put the Magpie model into the Raccoon model menu. Your Raccoon login and ' +
-    'account are not affected. The first takeover takes a few seconds; then reopen the model ' +
-    'dropdown once to see it. The daily check-in that claims your Raccoon credits runs at 09:00 ' +
-    'Beijing time by default, whether this switch is on or off; change it with ' +
-    '"raccoon-magpie.js checkin at HH:MM".',
+    '打开开关即可把 Magpie 选中的模型写进小浣熊的模型菜单，小浣熊自身的登录与账号不受影响。' +
+    '首次接管约需几秒，完成后刷新一次模型下拉框即可看到。' +
+    '每日签到默认在北京时间 09:00 自动领取小浣熊积分，与这个开关是否打开无关；' +
+    '改时间请执行 raccoon-magpie.js checkin at HH:MM。',
 };
 
 export function connect({ gateway, model, models } = {}) {

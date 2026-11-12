@@ -10,7 +10,6 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { configDir } from './lib/util.js';
 import {
-  connectionStamp,
   connectionState,
   liveCatalog,
   reconcile,
@@ -29,7 +28,7 @@ async function note(line) {
 
 let catalog = null;
 let timer = null;
-let stamp = '';
+let running = null;
 
 /** The one catalog both the poll loop and the plugin share. */
 function ensureCatalog() {
@@ -43,15 +42,12 @@ function ensureCatalog() {
  * light poll is what makes the switch work without a restart.
  */
 function watchConnection() {
-  stamp = connectionStamp();
   if (timer) return timer;
   timer = setInterval(async () => {
     try {
-      const now = connectionStamp();
-      if (now === stamp) return;
-      stamp = now;
       await run();
     } catch (error) {
+      await record({ state: 'error', reason: String(error?.message || error) });
       await note(`watch: ${error?.message || error}`);
     }
   }, 5000);
@@ -60,6 +56,12 @@ function watchConnection() {
 }
 
 async function run() {
+  if (running) return running;
+  running = runNow().finally(() => { running = null; });
+  return running;
+}
+
+async function runNow() {
   const result = await reconcile({ catalog: ensureCatalog() });
   if (result.action !== 'unchanged' && result.action !== 'idle') {
     await note(`reconcile ${result.action}${result.reason ? ` (${result.reason})` : ''}`);

@@ -1,6 +1,8 @@
 # 小浣熊 · Magpie 桥
 
-让 **商汤小浣熊**（SenseTime Raccoon，`@raccoonoffice-desktop`）直接使用 Magpie 里配置的模型与路由组。模型菜单里会出现 Magpie 当前选中的模型；小浣熊自身的登录、账号与积分不受影响。
+让 **商汤小浣熊**（SenseTime Raccoon，`@raccoonoffice-desktop`）直接使用 Magpie 里配置的全部模型与路由组。模型菜单返回 Magpie 实时完整目录，可以在小浣熊内直接切换任意模型。
+
+本机定制版本为 **0.4.2**，源码路径：`D:\Codex会话\magpie-editor-bridges\magpie-agent-raccoon-bridge`。Magpie 的 Agent 页面显示 **小浣熊 · Magpie 桥接**。
 
 思路与 [`magpie-agent-cursor-bridge`](https://github.com/932633145/magpie-agent-cursor-bridge) 和 `magpie-agent-trae-bridge` 一致，但按小浣熊实际的取模方式来适配。
 
@@ -31,18 +33,19 @@ Magpie 插件 → 写入 connection.json（网关、key、选中的模型）
 | 文件 | 处理方式 |
 | :--- | :--- |
 | `%USERPROFILE%\.office-raccoon\agent\config\config.yaml` | 就地改写，只动它自己的那几个标量 |
-| `%USERPROFILE%\.office-raccoon\agent\config\auth.json` | **从不写入**，也不从中读取令牌 |
+| `%USERPROFILE%\.office-raccoon\agent\config\auth.json` | 模型目录同步不写入；上游登录和签到功能单独使用此文件 |
 
 ---
 
 ## 功能
 
-- **只放一条，不倾倒目录**：菜单里只有 Magpie 当前选定的那个模型，用 Magpie 给的名称显示。在 Magpie 里换模型是**替换**这一条，而不是越积越多。
-- **沿用模型限额**：`context_window` / `max_output_tokens` 取自网关，小浣熊的上下文计算保持真实。
+- **完整模型目录**：为 Magpie 的每项模型和路由组生成独立预设，名称、模型 ID 和限额取自实时网关。
+- **沿用模型限额**：`context_window` / `max_output_tokens` 取自网关。导入模型未声明的限额按小浣熊原生格式记为 `0`（未指定），保留目录中的全部模型，不编造限额。
 - **双向尊重**：你在小浣熊里选的模型，后续同步不会覆盖；你在 Magpie 里选定后，主模型会切过去。
-- **删除会保留**：你在菜单里删掉的 Magpie 条目，不会被下次同步加回来。
-- **按字节还原**：断开时恢复原始文件；若你之后自己换过模型，则保留你的新选择，只清掉 Magpie 那一条。
+- **实时更新**：目录添加、删除、同数量替换或调用密钥改变都会重新同步。Magpie 是目录来源，删除本地的 Magpie 预设会在同步时恢复。
+- **精确还原**：断开时移除桥接预设并恢复原有模型；期间新增的自定义服务和其他设置保留。
 - **无变化不写盘**：模型目录没变时完全不改文件。
+- **明确失败**：网关不可达、目录无效、选定模型消失或模型配置损坏时记录错误，不使用旧目录宣称连接成功。
 - **每日签到**：每天北京时间 09:00 领取小浣熊积分，并如实报告**实际到账**多少，而不是只看请求是否成功。
 
 ---
@@ -75,23 +78,19 @@ node bin/raccoon-magpie.js logout            # 移除本机登录态
 
 ## 安装
 
-在 Magpie → **插件** 里添加，二选一。
-
-用包名：
+本机定制版本在 Magpie → **插件** 中添加这个本地目录：
 
 ```text
-magpie-agent-raccoon-bridge
+D:\Codex会话\magpie-editor-bridges\magpie-agent-raccoon-bridge
 ```
 
-或直接用仓库地址：
+上游开源版本的仓库地址（不包含本机完整目录修改）：
 
 ```text
 github:Wovoemj/magpie-agent-raccoon-bridge
 ```
 
-npm 包与仓库内容一致；用 npm 包名安装时，插件卡片还能拿到源码地址、许可证和说明文档，不会显示 `npm 没有响应`。
-
-然后在 Magpie → **Agents** 打开 **小浣熊 · Magpie 桥** 的开关，并选定要让小浣熊默认使用的模型。
+然后在 Magpie → **Agents** 打开 **小浣熊 · Magpie 桥接** 的开关，并选定要让小浣熊默认使用的模型。也可以直接在小浣熊模型菜单中选择模型，之后的目录刷新会保留这个选择。
 
 最后刷新一次小浣熊的模型下拉框（或打开一次对话面板）。方案列表不需要重启小浣熊，菜单打开时它会重新读取。
 
@@ -163,28 +162,23 @@ node bin/raccoon-magpie.js uninstall  # 还原并移除自启
 
 方案列表和「当前主模型」是分开处理的，这是有意为之：
 
-1. Magpie 有明确指定（`connection.model`）→ 主模型指向它。
-2. 当前选中的就是 Magpie 那一条 → 继续保持选中，让限额随目录更新。
-3. `use_default_remote_preset` 为真 → 小浣熊还在用自己的内置目录，由本插件接管。
-
-你自己保存的服务和小浣熊的内置模型永远不会被改写——只有 Magpie 那一条归本插件管。
-
-4. 其余情况 → 认定是你自己的选择，只刷新方案列表，不动你的模型。
-
-补充一点：小浣熊自己也会在更新后、或某条方案失效时回落到内置模型，这在文件里看起来和「用户手动切换」一模一样。两者靠历史区分：**切回内置模型**只在前两次算你的选择，之后识别为应用重置并收回；**切到你自己保存的服务**则永远尊重。
+1. 初次连接或在 Magpie 里重新选择模型时，主模型指向这个明确选择。
+2. 之后的目录刷新保留小浣熊里当前选中的 Magpie 模型，同时更新它的限额。
+3. 如果当前使用自定义服务或内置模型，目录同步保留这个选择。
+4. 明确选定的 Magpie 模型若已从实时目录移除，桥接会报错，不自动切到其他模型。
 
 ---
 
 ## 常见问题
 
 **插件卡片基本是空的，并显示 `npm 没有响应: not found`。**
-卡片上的来源、许可证、下载量和说明文档都来自 npm。改用 npm 包名（`magpie-agent-raccoon-bridge`）安装即可显示；用 `github:` 也能正常工作。
+本机版本通过本地源码目录安装，部分商店统计信息依赖 npm 元数据。本机接入与模型同步不依赖这些统计信息；当前可复用的上游源码位于 GitHub。
 
 **Agents 页面里找不到这个桥。**
 Magpie 会把原因写进 `%LOCALAPPDATA%/magpie/logs/app.log`。最常见的是插件来源无法解析，比如相对路径——Magpie 是相对它自己的工作目录解析的，不是插件目录。
 
 **模型菜单没变化。**
-把开关关掉再打开一次。每次切换都会让 Magpie 重写 `connection.json`，那才是唤醒本插件的信号。
+先重新打开模型下拉框。后台会定期读取实时目录，开关变化、目录变化和本地配置变化都会触发同步。若仍未更新，运行 `node bin/raccoon-magpie.js status` 和 `doctor` 查看明确的失败原因。
 
 ---
 

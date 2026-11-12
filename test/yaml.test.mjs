@@ -103,9 +103,9 @@ export default {
     assert.equal(readLlmBlock(next).remote_model_id, 'auto/gpt-6-luna');
   },
 
-  'tolerates a preset list the client is midway through writing'() {
+  'refuses malformed presets before a sync can discard user services'() {
     const broken = SAMPLE.replace('saved_models_json: "[]"', 'saved_models_json: "[{"');
-    assert.deepEqual(readSavedModels(broken), []);
+    assert.throws(() => readSavedModels(broken), /保存的模型配置无效/);
   },
 
   'serialises scalars the way the client parses them'() {

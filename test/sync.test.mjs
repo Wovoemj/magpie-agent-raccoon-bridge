@@ -90,6 +90,20 @@ export default {
     assert.equal(preset.id, presetId('auto/gpt-6-luna'));
   },
 
+  async 'selecting a model without advertised limits clears the previous model limits'(t) {
+    const { profile } = sandbox(t);
+    const models = [model('auto/known', 'Known', 128000, 8192), model('imported/plain', 'Imported', null, null)];
+    await apply({ models, gateway: GATEWAY, key: KEY, select: 'auto/known', profile });
+    await apply({ models, gateway: GATEWAY, key: KEY, select: 'imported/plain', profile });
+    const text = read(profile);
+    const llm = readLlmBlock(text);
+    assert.equal(llm.remote_model_id, 'imported/plain');
+    assert.equal(llm.context_window, 0);
+    assert.equal(llm.max_output_tokens, 0);
+    // Only the selected model is exposed; the previous one is replaced.
+    assert.deepEqual(readSavedModels(text).filter(preset => preset.id.startsWith('magpie-')).map(preset => preset.remoteModelId), ['imported/plain']);
+  },
+
   'user presets keep their place and Magpie entries follow them'() {
     const existing = [
       { id: 'mine', name: 'Mine', remoteModelId: 'gpt-4' },
@@ -125,7 +139,7 @@ export default {
       models: [model('auto/gpt-6-luna', 'GPT-6 Luna · routing group')],
       gateway: GATEWAY,
       key: KEY,
-      select: null,
+      select: 'auto/gpt-6-luna',
       profile,
     });
     assert.equal(result.changed, true);
@@ -147,7 +161,7 @@ export default {
   async 'a large catalog still yields exactly one menu entry'(t) {
     const { profile } = sandbox(t);
     // The whole point: Magpie may know hundreds of models, but Raccoon's menu
-    // should only carry the one Magpie is set to.
+    // carries only the one Magpie is set to.
     const many = Array.from({ length: 120 }, (_, index) => model(`auto/m${index}`, `Model ${index}`));
     const result = await apply({
       models: many,
@@ -169,9 +183,9 @@ export default {
     await apply({ models, gateway: GATEWAY, key: KEY, select: 'auto/a', profile });
     assert.equal(readLlmBlock(read(profile)).remote_model_id, 'auto/a');
     await apply({ models, gateway: GATEWAY, key: KEY, select: 'auto/b', profile });
-    const presets = readSavedModels(read(profile));
-    assert.equal(presets.filter((item) => String(item.id).startsWith('magpie-')).length, 1);
-    assert.equal(presets.find((item) => String(item.id).startsWith('magpie-')).remoteModelId, 'auto/b');
+    const magpie = readSavedModels(read(profile)).filter((item) => String(item.id).startsWith('magpie-'));
+    assert.equal(magpie.length, 1);
+    assert.deepEqual(magpie.map(item => item.remoteModelId), ['auto/b']);
     assert.equal(readLlmBlock(read(profile)).remote_model_id, 'auto/b');
   },
 
@@ -244,7 +258,7 @@ export default {
     assert.equal(llm.active_saved_model_id, presetId('auto/b'));
   },
 
-  async 'the entry the user deletes in the app is not re-added on the next sync'(t) {
+  async 'the menu remains the full Magpie catalog after an app removes an entry'(t) {
     const { profile } = sandbox(t);
     const models = [model('auto/a', 'A'), model('auto/b', 'B')];
     await apply({ models, gateway: GATEWAY, key: KEY, select: 'auto/a', profile });
@@ -260,7 +274,7 @@ export default {
 
     await apply({ models, gateway: GATEWAY, key: KEY, select: null, profile });
     const after = readSavedModels(read(profile)).map((item) => item.id);
-    assert.equal(after.includes(goneId), false, 'the deletion sticks');
+    assert.equal(after.includes(goneId), true, 'the gateway catalog is authoritative');
 
     // An explicit pick in Magpie is a fresh instruction, so it comes back.
     await apply({ models, gateway: GATEWAY, key: KEY, select: 'auto/a', profile });
@@ -288,7 +302,7 @@ export default {
     assert.equal(presets[0].id, 'mine');
   },
 
-  async 'an app reset to the builtin preset does not disarm the switch'(t) {
+  async 'a builtin selection is preserved without guessing another model'(t) {
     const { profile } = sandbox(t);
     const models = [model('auto/a', 'A')];
     // Two takeovers in the past: the user has already been handed the Magpie model.
@@ -305,8 +319,8 @@ export default {
         .replace(/^( {4}remote_model_id: ).*$/m, '$1"sn-deepseek-v4-1-flash-1017"'),
     );
     const result = await apply({ models, gateway: GATEWAY, key: KEY, select: null, profile });
-    assert.equal(result.mainMode, 'bridge', 'the switch takes it back');
-    assert.equal(readLlmBlock(read(profile)).remote_model_id, 'auto/a');
+    assert.equal(result.mainMode, 'user');
+    assert.equal(readLlmBlock(read(profile)).remote_model_id, 'sn-deepseek-v4-1-flash-1017');
   },
 
   async 'a deliberate move to a saved service is still respected'(t) {
@@ -350,6 +364,38 @@ export default {
       apply({ models: [model('auto/a', 'A')], gateway: GATEWAY, key: KEY, select: null, profile }),
       /Raccoon config not found/,
     );
+  },
+
+  async 'a routing group selected in the app survives a catalog refresh'(t) {
+    const { profile } = sandbox(t);
+    const models = [model('provider/a', 'A'), model('auto/b', 'B')];
+    await apply({ models, gateway: GATEWAY, key: KEY, select: 'provider/a', profile });
+    pickInApp(profile, { baseUrl: GATEWAY, key: KEY, modelId: 'auto/b', preset: presetId('auto/b') });
+    await apply({ models: [...models, model('provider/c', 'C')], gateway: GATEWAY, key: KEY, select: null, profile });
+    assert.equal(readLlmBlock(read(profile)).remote_model_id, 'auto/b');
+    assert.equal(readSavedModels(read(profile)).length, 2);
+  },
+
+  async 'an unavailable explicit model fails without changing the profile'(t) {
+    const { profile } = sandbox(t);
+    const before = read(profile);
+    await assert.rejects(apply({ models: [model('auto/a', 'A')], gateway: GATEWAY, key: KEY, select: 'auto/missing', profile }), /不在实时目录/);
+    assert.equal(read(profile), before);
+    assert.equal(readJournal(), null);
+  },
+
+  async 'disconnect preserves new user services and unrelated settings'(t) {
+    const { profile } = sandbox(t);
+    await apply({ models: [model('auto/a', 'A')], gateway: GATEWAY, key: KEY, select: 'auto/a', profile });
+    const presets = readSavedModels(read(profile));
+    presets.push({ id: 'new-service', name: 'New service', remoteModelId: 'new' });
+    const text = read(profile).replace(/^( {4}saved_models_json: ).*$/m, `$1${JSON.stringify(JSON.stringify(presets))}`)
+      .replace('timeout: 1000', 'timeout: 2000');
+    fs.writeFileSync(configFile(profile), text);
+    await restore({ profile });
+    assert.deepEqual(readSavedModels(read(profile)).map(item => item.id), ['mine', 'new-service']);
+    assert.ok(read(profile).includes('timeout: 2000'));
+    assert.equal(readLlmBlock(read(profile)).remote_model_id, 'sn-deepseek-v4-1-flash-1017');
   },
 
   async 'the takeover state is recorded where status can read it'(t) {

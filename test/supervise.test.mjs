@@ -50,6 +50,7 @@ function sandbox(t) {
 /** A catalog stub, so no network is involved. */
 function catalogWith(models) {
   return {
+    async refresh() { return this.snapshot; },
     snapshot: {
       ok: models.length > 0,
       gateway: GATEWAY,
@@ -120,8 +121,11 @@ export default {
       assert.equal(llm.remote_base_url, GATEWAY);
       assert.equal(llm.remote_model_id, 'auto/gpt-6-luna');
       // Only the picked model goes into the menu, not the whole catalog.
+      const magpie = readSavedModels(text).filter((item) => String(item.id).startsWith('magpie-'));
+      assert.equal(magpie.length, 1);
+      assert.equal(magpie[0].remoteModelId, 'auto/gpt-6-luna');
+      // This profile starts with no saved services, so one Magpie entry is all.
       assert.equal(readSavedModels(text).length, 1);
-      assert.equal(readSavedModels(text)[0].remoteModelId, 'auto/gpt-6-luna');
       assert.equal(takenOver(), true);
       assert.equal(readState().state, 'connected');
     });
@@ -186,5 +190,32 @@ export default {
           assert.equal(fs.readFileSync(configFile(profile), 'utf8'), before);
         });
       });
+  },
+
+  async 'cached models do not turn a failed live refresh into a connection'(t) {
+    const { profile, connection } = sandbox(t);
+    fs.writeFileSync(connection, JSON.stringify({ enabled: true, gateway: GATEWAY, key: KEY, model: MODELS[0].id, models: MODELS }));
+    const catalog = catalogWith(MODELS);
+    await reconcile({ catalog, profile });
+    const before = fs.readFileSync(configFile(profile), 'utf8');
+    catalog.refresh = async () => ({ ...catalog.snapshot, ok: false, notes: ['HTTP 503'] });
+    const result = await reconcile({ catalog, profile });
+    assert.equal(result.action, 'error');
+    assert.equal(readState().state, 'error');
+    assert.match(readState().reason, /HTTP 503/);
+    assert.equal(fs.readFileSync(configFile(profile), 'utf8'), before);
+  },
+
+  async 'same-sized catalog changes replace models without resetting the app pick'(t) {
+    const { profile, connection } = sandbox(t);
+    fs.writeFileSync(connection, JSON.stringify({ enabled: true, gateway: GATEWAY, key: KEY, model: MODELS[0].id }));
+    const catalog = catalogWith(MODELS);
+    await reconcile({ catalog, profile });
+    catalog.snapshot.models = [MODELS[0], { ...MODELS[1], id: 'provider/new', label: 'New' }];
+    await reconcile({ catalog, profile });
+    const presets = readSavedModels(fs.readFileSync(configFile(profile), 'utf8'));
+    // The pick did not change, so the menu still carries just that one model.
+    const magpie = presets.filter(item => String(item.id).startsWith('magpie-'));
+    assert.deepEqual(magpie.map(item => item.remoteModelId), [MODELS[0].id]);
   },
 };

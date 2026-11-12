@@ -10,7 +10,7 @@ export default {
     assert.equal(agent.model, 'model');
     assert.ok(agent.config.endsWith('magpie-raccoon-bridge/connection.json'));
     assert.ok(agent.ua.includes('raccoon-magpie-bridge'));
-    assert.match(agent.notice, /登录/);
+    assert.match(agent.notice, /Magpie 选中的模型/);
   },
 
   'connect answers at once with the catalog Magpie handed it'() {
@@ -57,18 +57,30 @@ export default {
     assert.equal(model.group, 'auto');
   },
 
-  'a model without limits gets workable defaults, never zero'() {
-    const model = asModel({ id: 'plain' });
-    assert.equal(model.context, 128000);
-    assert.equal(model.output, 8192);
-    assert.equal(model.group, '');
+  'optional limits do not remove imported models from the full catalog'() {
+    const models = asModels({ data: [
+      { id: 'auto/known', context_window: 128000, max_output_tokens: 8192 },
+      { id: 'imported/plain' },
+      { id: 'imported/input-only', context_window: 64000 },
+    ] });
+    assert.deepEqual(models.map(model => model.id), ['auto/known', 'imported/plain', 'imported/input-only']);
+    assert.equal(models[1].context, null);
+    assert.equal(models[1].output, null);
+    assert.equal(models[2].context, 64000);
+    assert.equal(models[2].output, null);
   },
 
-  'the catalog reader accepts strings, duplicates and junk'() {
-    const models = asModels({ data: ['a', { id: 'a' }, { id: 'b' }, {}, null] });
-    assert.deepEqual(models.map((item) => item.id), ['a', 'b']);
-    assert.deepEqual(asModels({}), []);
-    assert.deepEqual(asModels({ data: 'nope' }), []);
+  'invalid declared limits still fail visibly'() {
+    assert.throws(() => asModel({ id: 'bad', context_window: -1 }), /无效的上下文或输出上限/);
+    assert.throws(() => asModel({ id: 'bad', max_output_tokens: 'unknown' }), /无效的上下文或输出上限/);
+  },
+
+  'invalid and duplicate catalog entries fail visibly'() {
+    assert.throws(() => asModels({}), /响应格式无效/);
+    assert.throws(() => asModels({ data: ['a'] }), /无效模型 ID/);
+    const valid = { id: 'a', context_window: 128000, max_output_tokens: 8192 };
+    assert.throws(() => asModels({ data: [valid, valid] }), /重复 ID/);
+    assert.deepEqual(asModels({ data: [] }), []);
   },
 
   'every Magpie preset points at the same gateway and its own model'() {

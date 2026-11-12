@@ -1,7 +1,7 @@
 {
   "name": "magpie-agent-raccoon-bridge",
-  "version": "0.4.0",
-  "description": "Make 商汤小浣熊 (RaccoonWork) use the model configured in Magpie, sign in from a browser, and claim its daily credits. Raccoon's own login is untouched.",
+  "version": "0.4.3",
+  "description": "让商汤小浣熊直接使用 Magpie 的全部模型与路由组，自动同步完整模型目录并保留编辑器内的模型选择。",
   "type": "module",
   "main": "./plugin.js",
   "bin": {
@@ -23,7 +23,7 @@
   },
   "magpie": {
     "agent": "./agent.js",
-    "name": "Raccoon · Magpie Bridge",
+    "name": "小浣熊 · Magpie 桥接",
     "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABq0lEQVR4nO2bTU7DMBSEx6McgzWwQIgFJ+JgnIhFhbIgrLkHiEUkK0od/8f29Nu1ssczz89J2qrADW1MzKT7x5dfNMj31yU4j+k9dGoxOGL4EM8mh0jP3cDRwx9lYeiEXrmWiRCHCrvvysajAaOxzUiIQ4hDpfbfy0qIQ4hDiEOIQ4hDiMNSwvPnR9N6Kybnc8A1k0/Pr01p2t8RmNQC+O5MjOGS2kkFmBPa0cdsaf2oAswRu5Hz3MbouooR1QGzY2HXYqV2NNaPXQDmMtMSIT5N7EXQrn6pcx2qGxI8qgNa7oZYPzxj0dyk+DA5HoT+29D3YpWzrY/WLXoEbHxNnDXOxYSCrDsZY3Sdk6JR/bNA6pW5ll72I7BlNZnLbG694h3QA0U7oCcIcQhxCHGm2gsub3eHYx7efzBkBywe4UPGdVWAJTBUrSIQ4hDiEOKw1kKhV/ZadwKiIr6hat4GJ1SmZjgfCHEIcZjyZ4NesbMS4hDi0H6hcAy2GXk0YCT2shHicO/NEbvgWiaGTugRVxbjI9DrbwY+m8hcQq3h69nEiLfaET1u1A2czB9T0stQ5jPAYAAAAABJRU5ErkJggg=="
   },
   "engines": {
